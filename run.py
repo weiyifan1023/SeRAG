@@ -1,0 +1,94 @@
+import argparse
+import json
+import random 
+import numpy as np 
+import torch 
+from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
+from src.config import LinearRAGConfig, SeRAGConfig, SeRAG_v1Config
+from src.LinearRAG import LinearRAG
+from src.SeRAG import SeRAG
+import os
+import warnings
+from src.evaluate import Evaluator
+from src.utils import LLM_Model, ByteDance_OpenAI
+from src.utils import setup_logging
+from datetime import datetime
+
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+warnings.filterwarnings('ignore')
+
+def seed_everything(seed=42):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--spacy_model", type=str, default="en_core_web_trf", help="The spacy model to use")
+    parser.add_argument("--embedding_model", type=str, default="model/all-mpnet-base-v2", help="The path of embedding model to use")
+    parser.add_argument("--dataset_name", type=str, default="musique", help="The dataset to use")
+    parser.add_argument("--llm_model", type=str, default="gpt-4o-mini", help="The LLM model to use")
+    parser.add_argument("--max_workers", type=int, default=16, help="The max number of workers to use")
+    parser.add_argument("--max_iterations", type=int, default=3, help="The max number of iterations to use")
+    parser.add_argument("--iteration_threshold", type=float, default=0.4, help="The threshold for iteration")
+    parser.add_argument("--passage_ratio", type=float, default=2, help="The ratio for passage")
+    parser.add_argument("--top_k_sentence", type=int, default=3, help="The top k sentence to use")
+    return parser.parse_args()
+
+
+def load_dataset(dataset_name): 
+    questions_path = f"dataset/{dataset_name}/questions.json"
+    with open(questions_path, "r", encoding="utf-8") as f:
+        questions = json.load(f)
+    chunks_path = f"dataset/{dataset_name}/chunks.json"
+    # chunks_path = f"dataset/{dataset_name}/{dataset_name}_corpus.json"
+    with open(chunks_path, "r", encoding="utf-8") as f:
+        chunks = json.load(f)
+    passages = [f'{idx}:{chunk}' for idx, chunk in enumerate(chunks)]
+    # passages = [f"{idx}: ### Title: {chunk['title']} \n {chunk['text']}" for idx, chunk in enumerate(chunks)]
+    return questions, passages
+
+def load_embedding_model(embedding_model):
+    embedding_model = SentenceTransformer(embedding_model, device="cuda")
+    # embedding_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2',device="cuda", local_files_only=True)
+    return embedding_model
+
+def main():
+    seed_everything(42)
+
+    time = datetime.now()
+    time_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+    args = parse_arguments()
+    embedding_model = load_embedding_model(args.embedding_model)
+    print("load embedding model done")
+    questions,passages = load_dataset(args.dataset_name)
+    print("load dataset done")
+    setup_logging(f"results/{args.dataset_name}/{time_str}/log.txt")
+    llm_model = LLM_Model(args.llm_model)
+    print(f"load llm model {args.llm_model} done")
+    config = SeRAGConfig(
+        dataset_name=args.dataset_name,
+        embedding_model=embedding_model,
+        spacy_model=args.spacy_model,
+        max_workers=args.max_workers,
+        llm_model=llm_model,
+        llm_name=args.llm_model,
+    )
+    # where need to optimize
+    rag_model = SeRAG(global_config=config)
+    rag_model.index(passages)
+    questions = rag_model.qa(questions) #random.sample(questions, 100)
+    os.makedirs(f"results/{args.dataset_name}/{time_str}", exist_ok=True)
+    with open(f"results/{args.dataset_name}/{time_str}/predictions.json", "w", encoding="utf-8") as f:
+        json.dump(questions, f, ensure_ascii=False, indent=4)
+    evaluator = Evaluator(llm_model=llm_model, predictions_path=f"results/{args.dataset_name}/{time_str}/predictions.json")
+    evaluator.evaluate(max_workers=args.max_workers)
+if __name__ == "__main__":
+    main()
