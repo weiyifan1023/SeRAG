@@ -48,11 +48,9 @@ def load_dataset(dataset_name):
     with open(questions_path, "r", encoding="utf-8") as f:
         questions = json.load(f)
     chunks_path = f"dataset/{dataset_name}/chunks.json"
-    # chunks_path = f"dataset/{dataset_name}/{dataset_name}_corpus.json"
     with open(chunks_path, "r", encoding="utf-8") as f:
         chunks = json.load(f)
     passages = [f'{idx}:{chunk}' for idx, chunk in enumerate(chunks)]
-    # passages = [f"{idx}: ### Title: {chunk['title']} \n {chunk['text']}" for idx, chunk in enumerate(chunks)]
     return questions, passages
 
 def load_embedding_model(embedding_model):
