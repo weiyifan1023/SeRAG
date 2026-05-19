@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class SeRAG:
-    """ SeRAG实现了基于结构熵的层次化索引和两阶段检索。"""
     def __init__(self, global_config):
         self.config = global_config
         self.dataset_name = global_config.dataset_name
@@ -36,26 +35,21 @@ class SeRAG:
         self.load_embedding_store()
         self.llm_model = self.config.llm_model
         
-        self.spacy_ner = SpacyNER(self.config.spacy_model) # 实例化 NER 工具
+        self.spacy_ner = SpacyNER(self.config.spacy_model) 
         
         self.struct_entropy_model: StructEntropy = None
         self.encoding_tree_root: CommunityNode = None
         
-        # 社区 Summary {community_id: summary_embedding}
         self.community_summaries: Dict[int, np.ndarray] = {} 
-        # 节点级结构熵权重 {chunk_hash_id: S_e(v)}
         self.chunk_se_weights: Dict[str, float] = {} 
         
-        # 数据结构映射
-        self.passage_hash_id_to_entities = {} # Chunk hash ID -> 实体文本集合
-        self.hash_id_to_chunk_index = {} # Chunk hash -> 天然连续 ID (int)
-        self.chunk_index_to_hash_id = {} # 天然连续 ID (int) -> Chunk hash
-        
-        # NER 结果文件路径
+        self.passage_hash_id_to_entities = {} 
+        self.hash_id_to_chunk_index = {} 
+        self.chunk_index_to_hash_id = {} 
+
         self.ner_filepath = os.path.join(self.config.working_dir, self.dataset_name, "ner_results.json")
 
     def load_embedding_store(self):
-        """加载所需的 EmbeddingStore 实例。"""
         working_dir = getattr(self.config, 'working_dir', '.')
         dataset_name = getattr(self.config, 'dataset_name', 'default_dataset')
         
@@ -93,7 +87,6 @@ class SeRAG:
         return semantic_edges
 
     def _calculate_logical_edges(self, all_chunk_hash_ids: List[str]) -> Dict[Tuple[str, str], float]:
-        """计算 Logical Edges (基于实体共现)"""
         logger.info("Calculating Logical Edges (Entity Co-occurrence).")
         entity_text_to_hash_id = self.entity_embedding_store.text_to_hash_id
         chunk_hash_id_to_entities = self.passage_hash_id_to_entities 
@@ -137,7 +130,6 @@ class SeRAG:
         return distance_edges
     
     def _merge_and_normalize_edges(self, all_chunk_hash_ids, s_edges, l_edges, d_edges):
-        """线性加权融合边权重。"""
         alpha, beta, gamma = self.alpha_semantic, self.beta_logical, self.gamma_distance
         all_edges = set(s_edges.keys()) | set(l_edges.keys()) | set(d_edges.keys())
         
@@ -153,7 +145,6 @@ class SeRAG:
         return final_edges_hashes, final_weights
 
     def _get_chunk_index_from_text(self, hash_id_to_chunk: Dict[str, str]):
-        """从 Chunk 文本中提取原始连续索引。"""
         index_pattern = re.compile(r'^(\d+):')
         self.hash_id_to_chunk_index = {}
         for hash_id, text in hash_id_to_chunk.items():
@@ -161,20 +152,17 @@ class SeRAG:
             if match:
                 self.hash_id_to_chunk_index[hash_id] = int(match.group(1))
                 
-    # --- Summary Embedding 计算方法 ---
     
     def _get_summary_embedding(self, community_node: CommunityNode, chunk_embeddings: np.ndarray):
-        """计算社区加权摘要。"""
         if not community_node.node_ids: return None
         
         weighted_sum = np.zeros(chunk_embeddings.shape[1])
         total_weight = 0.0
         
-        for idx in community_node.node_ids: # idx 是天然连续 ID (int)
+        for idx in community_node.node_ids: 
             h_id = self.chunk_index_to_hash_id.get(idx)
             weight = max(0.0, self.chunk_se_weights.get(h_id, 0.0))
             
-            # 假设 chunk_embeddings 的物理行索引与天然 ID idx 一致
             weighted_sum += weight * chunk_embeddings[idx] 
             total_weight += weight
             
@@ -184,7 +172,6 @@ class SeRAG:
         return None
         
     def _traverse_and_compute_summaries(self, node: CommunityNode, chunk_embeddings: np.ndarray):
-        """递归遍历编码树计算摘要。"""
         summary_emb = self._get_summary_embedding(node, chunk_embeddings)
         if summary_emb is not None:
             self.community_summaries[node.ID] = summary_emb
@@ -192,21 +179,17 @@ class SeRAG:
         for child in node.children:
             self._traverse_and_compute_summaries(child, chunk_embeddings)
 
-    # --- 核心 Index 方法 ---
 
     def index(self, passages):
-        """SeRAG 索引主流程。"""
         self.chunk_embedding_store.insert_text(passages)
         h_to_chunk = self.chunk_embedding_store.get_hash_id_to_text()
         
-        # 1. 建立天然 ID 映射
         self._get_chunk_index_from_text(h_to_chunk) 
         self.chunk_index_to_hash_id = {idx: h for h, idx in self.hash_id_to_chunk_index.items()}
         
         all_h_ids = list(h_to_chunk.keys())
         all_embs = np.array(self.chunk_embedding_store.embeddings)
-        
-        # 2. NER 与实体提取
+
         existing_p_ent, _, new_p_ids = self.load_existing_data(all_h_ids)
         if new_p_ids:
             new_p_ent, _ = self.spacy_ner.batch_ner({k: h_to_chunk[k] for k in new_p_ids}, self.config.max_workers)
@@ -218,7 +201,6 @@ class SeRAG:
         for ents in existing_p_ent.values(): entity_nodes.update(ents)
         self.entity_embedding_store.insert_text(list(entity_nodes))
 
-        # 3. 构建多视图
         s_e = self._calculate_semantic_edges(all_embs, all_h_ids)
         l_e = self._calculate_logical_edges(all_h_ids)
         d_e = self._calculate_distance_edges(all_h_ids)
@@ -233,7 +215,6 @@ class SeRAG:
                 mapped_edges.append([self.hash_id_to_chunk_index[u_h], self.hash_id_to_chunk_index[v_h]])
                 final_ws.append(raw_ws[i])
  
-        # 4. 计算结构熵编码树
         e_tensor = torch.tensor(mapped_edges, dtype=torch.long, device=device)
         w_tensor = torch.tensor(final_ws, dtype=torch.float, device=device)
         logger.info(f"Edges shape: { e_tensor.shape}, Weights shape: {w_tensor.shape}")
@@ -241,31 +222,22 @@ class SeRAG:
         
         K = getattr(self.config, 'k_dim', 2)
         self.encoding_tree_root = self.struct_entropy_model.find_k_dim_entropy_tree(K)
-        
-        # 5. 计算权重与摘要
+
         node_se_map = self.struct_entropy_model.calc_node_se_from_tree()
 
-        # 将 Tensor 转换为 numpy 数组方便遍历
         se_values = node_se_map.cpu().detach().numpy() if torch.is_tensor(node_se_map) else node_se_map
 
         self.chunk_se_weights = {}
-        # 遍历所有天然 ID 及其对应的结构熵值
         for idx, val in enumerate(se_values):
-            # 只有在当前的 chunk 映射表中的有效 ID 才记录
             if idx in self.chunk_index_to_hash_id:
                 h_id = self.chunk_index_to_hash_id[idx]
                 self.chunk_se_weights[h_id] = float(val)
         
-        # 后续生成社区摘要
         self.community_summaries = {}
         self._traverse_and_compute_summaries(self.encoding_tree_root, all_embs)
         logger.info("Indexing completed.")
-   
-
-    # --- 核心 Retrieval 方法 ---
     
     def qa(self, questions):
-        # 1. Self-Query 生成描述性句子
         self._batch_llm_self_query(questions)
         retrieval_results = self.retrieve(questions)
         system_prompt = f"""As an advanced reading comprehension assistant, your task is to analyze text passages and corresponding questions meticulously. \
@@ -287,16 +259,13 @@ class SeRAG:
 
         for ans, res in zip(all_qa_results, retrieval_results):
             safe_ans = ans if ans is not None else ""
-            # print(f"QA Result for '{res['question']}': {safe_ans}")
             match = re.search(r'Answer:(.*)', safe_ans, re.DOTALL | re.IGNORECASE)
             res["pred_answer"] = match.group(1).strip() if match else safe_ans.strip()
             res["full_response"] = safe_ans
         return retrieval_results
 
-
-
+    
     def retrieve(self, questions):
-        """SeRAG 检索流程。"""
         self.entity_hash_ids = list(self.entity_embedding_store.hash_id_to_text.keys())
         self.entity_embeddings = np.array(self.entity_embedding_store.embeddings)
         all_pseudos = [q["pseudo_content"] for q in questions]
@@ -309,9 +278,7 @@ class SeRAG:
             q_dense = all_pseudo_embs[i].flatten()
 
             seed_ids, seed_scores = self.get_seed_entities(question)
-            # Stage 1: Coarse-grained
             candidate_communities = self._coarse_grained_matching(q_dense) 
-            # Stage 2: Fine-grained & Fusion
             passages, scores = self._fine_grained_matching_and_fusion(q_dense, candidate_communities, seed_ids, seed_scores)
             
             results.append({
@@ -323,7 +290,6 @@ class SeRAG:
         return results
 
     def _coarse_grained_matching(self, q_dense: np.ndarray) -> Dict[str, float]:
-        """粗粒度社区匹配。"""
         if not self.community_summaries: return {}
         K_COARSE = getattr(self.config, 'retrieval_k_coarse', 10)
         
@@ -344,7 +310,6 @@ class SeRAG:
         return coarse_results
 
     def _fine_grained_matching_and_fusion(self, q_dense, candidate_chunks, seed_ids, seed_scores):
-        """细粒度匹配与融合。"""
         g_coarse = getattr(self.config, 'gamma_coarse', 0.5)
         g_fine = getattr(self.config, 'gamma_fine', 0.5)
         top_k = self.config.retrieval_top_k
@@ -400,7 +365,6 @@ class SeRAG:
         return m
 
 
-
     def _batch_llm_self_query(self, questions):
  
         self_query_prompt = (
@@ -411,7 +375,6 @@ class SeRAG:
             "If you are unsure about the specific facts or entities, provide a broader categorical description instead of inventing details."
         )
 
-        # 2. Few-shot 示例：将 HotpotQA 的逻辑链转化为百科全书式的描述段落
         user_prompt = """Generate a factual, multi-hop descriptive passage for the following query.
 
 Query: Jeremy Theobald and Christopher Nolan share what profession?
@@ -453,7 +416,6 @@ Passage: """
             # q_info["pseudo_content"] = f"{res_content}" if res_content else q_info["question"]
 
     def get_seed_entities(self, question):
-        """从问题中识别实体，并通过向量相似度映射到实体库中的最相关实体。"""
         question_entities = list(self.spacy_ner.question_ner(question))
         if not question_entities:
             return [], []
@@ -463,21 +425,17 @@ Passage: """
             normalize_embeddings=True, 
             show_progress_bar=False
         )
-        
-        # 2. 计算与实体库中所有实体的相似度
         similarities = np.dot(self.entity_embeddings, q_ent_embs.T)
         
         seed_hash_ids = []
         seed_scores = []
         
-        threshold = getattr(self.config, 'entity_sim_threshold', 0.6) # 设置一个阈值，防止乱匹配
+        threshold = getattr(self.config, 'entity_sim_threshold', 0.6) 
 
         for i in range(len(question_entities)):
-            # 找到库中最匹配的实体
             best_idx = np.argmax(similarities[:, i])
             best_score = similarities[best_idx, i]
-            
-            # 只有超过阈值才认为匹配成功
+
             if best_score >= threshold:
                 h_id = self.entity_hash_ids[best_idx]
                 if h_id not in seed_hash_ids:
@@ -485,6 +443,4 @@ Passage: """
                     seed_scores.append(best_score)
                     
         return seed_hash_ids, seed_scores
-
-
     
