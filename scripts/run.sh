@@ -1,17 +1,12 @@
 cd /wyf_project/SeRAG
 
-
-
 # musique
 SPACY_MODEL="en_core_web_trf"
 EMBEDDING_MODEL="model/all-mpnet-base-v2"
 DATASET_NAME="musique"
 LLM_MODEL="gpt-4o-mini"   
-MAX_WORKERS=5
-MAX_ITERATION=5
-PASSAGE_RATIO=2.0
-THRESHOLD=0.1
-TOP_K_SENTENCE=4
+MAX_WORKERS=16
+
 
 # 2wikimultihop
 # SPACY_MODEL="en_core_web_trf"
@@ -19,10 +14,7 @@ TOP_K_SENTENCE=4
 # DATASET_NAME="2wikimultihop"
 # LLM_MODEL="gpt-4o-mini"
 # MAX_WORKERS=16
-# MAX_ITERATION=3
-# PASSAGE_RATIO=0.05
-# THRESHOLD=0.4
-# TOP_K_SENTENCE=1
+
 
 # hotpotqa
 # SPACY_MODEL="en_core_web_trf"
@@ -30,11 +22,6 @@ TOP_K_SENTENCE=4
 # DATASET_NAME="hotpotqa"
 # LLM_MODEL="gpt-4o-mini"
 # MAX_WORKERS=16
-# MAX_ITERATION=3
-# PASSAGE_RATIO=0.05
-# THRESHOLD=0.4
-# TOP_K_SENTENCE=1
-
 
 
 python run.py \
@@ -43,7 +30,3 @@ python run.py \
     --dataset_name ${DATASET_NAME} \
     --llm_model ${LLM_MODEL} \
     --max_workers ${MAX_WORKERS} \
-    --max_iterations ${MAX_ITERATION} \
-    --iteration_threshold ${THRESHOLD} \
-    --passage_ratio ${PASSAGE_RATIO} \
-    --top_k_sentence ${TOP_K_SENTENCE}
