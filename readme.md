@@ -72,3 +72,18 @@ python run.py \
     --max_workers ${MAX_WORKERS} 
 
 ```
+
+## 📖 Citation
+
+If you find this work helpful, please consider citing us:
+
+```bibtex
+@inproceedings{
+wei2026tokenfree,
+title={Token-Free Hierarchical Indexing for {RAG} beyond {LLM}-based Summarization},
+author={Wei, Yifan and Dan, Yuan and Yu, Xiaoyan and  Li, Angsheng},
+booktitle={Forty-third International Conference on Machine Learning},
+year={2026},
+url={https://openreview.net/forum?id=UnNUWCbDO6}
+}
+```
