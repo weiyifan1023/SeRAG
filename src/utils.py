@@ -115,11 +115,3 @@ def min_max_normalize(x):
     
     return (x - min_val) / range_val
 
-
-class ByteDance_OpenAI:
-    def __init__(self, llm_model=None):
-        pass
-
-
-
-
